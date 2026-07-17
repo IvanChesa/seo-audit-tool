@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\FetchPageJob;
 use App\Models\Audit;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -33,7 +34,7 @@ class AuditController extends Controller
             'status' => 'pending',
         ]);
 
-        // TODO: dispatch crawling job here (Fase 2)
+        FetchPageJob::dispatch($audit);
 
         return response()->json($audit, 201);
     }
