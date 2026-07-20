@@ -15,7 +15,7 @@ function AuditForm({ onAuditCreated }) {
             const audit = await createAudit(url);
             onAuditCreated(audit);
             setUrl('');
-        } catch (err) {
+        } catch {
             setError('No se pudo crear la auditoría. Revisa que la URL sea válida.');
         } finally {
             setLoading(false);

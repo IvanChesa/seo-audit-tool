@@ -1,11 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { getAudit } from '../api/audits';
 import ScoreGauge from './ScoreGauge';
 import IssueList from './IssueList';
 import HeadingsSection from './HeadingsSection';
-import KeywordsSection from './KeywordsSection';
 import LinksSection from './LinksSection';
 import SpeedSection from './SpeedSection';
+import AnalysisProgress from './AnalysisProgress';
+import ScoreBreakdown from './ScoreBreakdown';
+
+// Recharts pesa mucho: lo cargamos solo cuando hay datos de keywords.
+const KeywordsSection = lazy(() => import('./KeywordsSection'));
 
 function Section({ title, score, children }) {
     return (
@@ -34,21 +38,18 @@ function AuditResult({ auditId }) {
                 const data = await getAudit(auditId);
                 setAudit(data);
 
-                // Cuando termina (completed o failed), dejamos de preguntar
                 if (data.status === 'completed' || data.status === 'failed') {
                     clearInterval(intervalRef.current);
                 }
-            } catch (err) {
-                console.error('Error fetching audit:', err);
+            } catch {
                 setError('No se pudo cargar la auditoría.');
                 clearInterval(intervalRef.current);
             }
         };
 
-        fetchAudit(); // primera consulta inmediata
-        intervalRef.current = setInterval(fetchAudit, 2000); // luego cada 2s
+        fetchAudit();
+        intervalRef.current = setInterval(fetchAudit, 2000);
 
-        // Limpieza: si el componente se desmonta, paramos el polling
         return () => clearInterval(intervalRef.current);
     }, [auditId]);
 
@@ -78,12 +79,7 @@ function AuditResult({ auditId }) {
                 <span className={`status-badge status-${audit.status}`}>{audit.status}</span>
             </header>
 
-            {inProgress && (
-                <div className="progress-notice">
-                    <span className="spinner" aria-hidden="true" />
-                    Analizando la página, esto puede tardar unos segundos...
-                </div>
-            )}
+            {inProgress && <AnalysisProgress results={audit.results} />}
 
             {audit.status === 'failed' && (
                 <p className="section-error">
@@ -91,7 +87,12 @@ function AuditResult({ auditId }) {
                 </p>
             )}
 
-            {audit.status === 'completed' && <ScoreGauge score={audit.score} />}
+            {audit.status === 'completed' && (
+                <>
+                    <ScoreGauge score={audit.score} />
+                    <ScoreBreakdown results={audit.results} />
+                </>
+            )}
 
             {fetchResult && (
                 <Section title="Descarga de la página">
@@ -105,17 +106,23 @@ function AuditResult({ auditId }) {
 
             {metaResult && (
                 <Section title="Meta etiquetas" score={metaResult.score}>
-                    <dl className="meta-list">
-                        <dt>Título ({metaResult.data.title_length} caracteres)</dt>
-                        <dd>{metaResult.data.title || 'No encontrado'}</dd>
-                        <dt>Meta description ({metaResult.data.meta_description_length} caracteres)</dt>
-                        <dd>{metaResult.data.meta_description || 'No encontrada'}</dd>
-                        <dt>Canonical</dt>
-                        <dd>{metaResult.data.canonical || 'No encontrado'}</dd>
-                        <dt>Robots</dt>
-                        <dd>{metaResult.data.robots || 'No especificado'}</dd>
-                    </dl>
-                    <IssueList issues={metaResult.data.issues} />
+                    {metaResult.data.error ? (
+                        <p className="section-error">No se pudo analizar meta ({metaResult.data.error}).</p>
+                    ) : (
+                        <>
+                            <dl className="meta-list">
+                                <dt>Título ({metaResult.data.title_length} caracteres)</dt>
+                                <dd>{metaResult.data.title || 'No encontrado'}</dd>
+                                <dt>Meta description ({metaResult.data.meta_description_length} caracteres)</dt>
+                                <dd>{metaResult.data.meta_description || 'No encontrada'}</dd>
+                                <dt>Canonical</dt>
+                                <dd>{metaResult.data.canonical || 'No encontrado'}</dd>
+                                <dt>Robots</dt>
+                                <dd>{metaResult.data.robots || 'No especificado'}</dd>
+                            </dl>
+                            <IssueList issues={metaResult.data.issues ?? []} />
+                        </>
+                    )}
                 </Section>
             )}
 
@@ -127,7 +134,9 @@ function AuditResult({ auditId }) {
 
             {keywordsResult && (
                 <Section title="Palabras clave" score={keywordsResult.score}>
-                    <KeywordsSection result={keywordsResult} />
+                    <Suspense fallback={<p className="loading">Cargando gráfica...</p>}>
+                        <KeywordsSection result={keywordsResult} />
+                    </Suspense>
                 </Section>
             )}
 
