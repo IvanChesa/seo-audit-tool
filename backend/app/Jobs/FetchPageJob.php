@@ -68,6 +68,7 @@ class FetchPageJob implements ShouldQueue
             AnalyzeHeadingsJob::dispatch($this->audit);
             AnalyzeKeywordDensityJob::dispatch($this->audit);
             CheckBrokenLinksJob::dispatch($this->audit);
+            PageSpeedJob::dispatch($this->audit);
 
         } catch (\Illuminate\Http\Client\ConnectionException $e) {
             $this->audit->results()->create([
