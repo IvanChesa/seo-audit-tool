@@ -113,8 +113,27 @@ class AnalyzeMetaTagsJob implements ShouldQueue
         return $issues;
     }
 
+    /**
+     * Penalizaciones distintas según gravedad: faltar el title es mucho
+     * peor que tenerlo un poco corto.
+     */
     private function calculateScore(array $issues): int
     {
-        return max(0, 100 - (count($issues) * 15));
+        $penalties = [
+            'missing_title' => 40,
+            'title_too_long' => 10,
+            'title_too_short' => 10,
+            'missing_meta_description' => 25,
+            'meta_description_too_long' => 10,
+            'missing_canonical' => 15,
+        ];
+
+        $score = 100;
+
+        foreach ($issues as $issue) {
+            $score -= $penalties[$issue] ?? 10;
+        }
+
+        return max(0, $score);
     }
 }
