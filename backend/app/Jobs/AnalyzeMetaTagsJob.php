@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\Audit;
+use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -13,7 +14,7 @@ use Symfony\Component\DomCrawler\Crawler;
 
 class AnalyzeMetaTagsJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Batchable, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public function __construct(
         public Audit $audit
@@ -24,6 +25,10 @@ class AnalyzeMetaTagsJob implements ShouldQueue
      */
     public function handle(): void
     {
+        if ($this->batch()?->cancelled()) {
+            return;
+        }
+
         $html = Cache::get("audit:{$this->audit->id}:html");
 
         if (! $html) {
