@@ -63,7 +63,9 @@ class FetchPageJob implements ShouldQueue
                 return;
             }
 
+            // TODO(tarea 5): sustituir por Bus::batch con los 4 jobs de análisis.
             AnalyzeMetaTagsJob::dispatch($this->audit);
+            AnalyzeHeadingsJob::dispatch($this->audit);
 
         } catch (\Illuminate\Http\Client\ConnectionException $e) {
             $this->audit->results()->create([
