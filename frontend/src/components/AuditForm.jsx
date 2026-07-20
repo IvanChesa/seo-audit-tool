@@ -23,18 +23,21 @@ function AuditForm({ onAuditCreated }) {
     };
 
     return (
-        <form onSubmit={handleSubmit}>
-            <input
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://ejemplo.com"
-                required
-            />
-            <button type="submit" disabled={loading}>
-                {loading ? 'Analizando...' : 'Analizar'}
-            </button>
-            {error && <p style={{ color: 'red' }}>{error}</p>}
+        <form onSubmit={handleSubmit} className="audit-form">
+            <div className="audit-form-row">
+                <input
+                    type="url"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder="https://ejemplo.com"
+                    required
+                    className="audit-form-input"
+                />
+                <button type="submit" disabled={loading} className="audit-form-button">
+                    {loading ? 'Analizando...' : 'Analizar'}
+                </button>
+            </div>
+            {error && <p className="form-error">{error}</p>}
         </form>
     );
 }
