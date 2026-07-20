@@ -1,8 +1,31 @@
 import { useState, useEffect, useRef } from 'react';
 import { getAudit } from '../api/audits';
+import ScoreGauge from './ScoreGauge';
+import IssueList from './IssueList';
+import HeadingsSection from './HeadingsSection';
+import KeywordsSection from './KeywordsSection';
+import LinksSection from './LinksSection';
+import SpeedSection from './SpeedSection';
+
+function Section({ title, score, children }) {
+    return (
+        <section className="result-card">
+            <div className="result-card-header">
+                <h3>{title}</h3>
+                {score !== null && score !== undefined && (
+                    <span className={`score-pill ${score >= 80 ? 'good' : score >= 50 ? 'warn' : 'bad'}`}>
+                        {score}/100
+                    </span>
+                )}
+            </div>
+            {children}
+        </section>
+    );
+}
 
 function AuditResult({ auditId }) {
     const [audit, setAudit] = useState(null);
+    const [error, setError] = useState(null);
     const intervalRef = useRef(null);
 
     useEffect(() => {
@@ -17,6 +40,7 @@ function AuditResult({ auditId }) {
                 }
             } catch (err) {
                 console.error('Error fetching audit:', err);
+                setError('No se pudo cargar la auditoría.');
                 clearInterval(intervalRef.current);
             }
         };
@@ -28,48 +52,95 @@ function AuditResult({ auditId }) {
         return () => clearInterval(intervalRef.current);
     }, [auditId]);
 
-    if (!audit) {
-        return <p>Cargando...</p>;
+    if (error) {
+        return <p className="section-error">{error}</p>;
     }
 
-    const metaResult = audit.results.find((r) => r.type === 'meta');
-    const fetchResult = audit.results.find((r) => r.type === 'fetch');
+    if (!audit) {
+        return <p className="loading">Cargando...</p>;
+    }
+
+    const findResult = (type) => audit.results.find((r) => r.type === type);
+
+    const fetchResult = findResult('fetch');
+    const metaResult = findResult('meta');
+    const headingsResult = findResult('headings');
+    const keywordsResult = findResult('keywords');
+    const linksResult = findResult('links');
+    const speedResult = findResult('speed');
+
+    const inProgress = audit.status === 'pending' || audit.status === 'processing';
 
     return (
-        <div>
-            <h2>{audit.url}</h2>
-            <p>Estado: {audit.status}</p>
+        <div className="audit-result">
+            <header className="result-header">
+                <h2 className="result-url">{audit.url}</h2>
+                <span className={`status-badge status-${audit.status}`}>{audit.status}</span>
+            </header>
 
-            {(audit.status === 'pending' || audit.status === 'processing') && (
-                <p>Analizando la página, esto puede tardar unos segundos...</p>
+            {inProgress && (
+                <div className="progress-notice">
+                    <span className="spinner" aria-hidden="true" />
+                    Analizando la página, esto puede tardar unos segundos...
+                </div>
             )}
 
+            {audit.status === 'failed' && (
+                <p className="section-error">
+                    La auditoría falló. Comprueba que la URL sea accesible.
+                </p>
+            )}
+
+            {audit.status === 'completed' && <ScoreGauge score={audit.score} />}
+
             {fetchResult && (
-                <div>
-                    <h3>Descarga de la página</h3>
-                    <p>Código HTTP: {fetchResult.data.status_code}</p>
-                    <p>Tamaño: {fetchResult.data.content_length} bytes</p>
-                </div>
+                <Section title="Descarga de la página">
+                    <p className="section-note">
+                        {fetchResult.data.error
+                            ? `Error: ${fetchResult.data.error}`
+                            : `Código HTTP ${fetchResult.data.status_code} · ${(fetchResult.data.content_length / 1024).toFixed(1)} KB`}
+                    </p>
+                </Section>
             )}
 
             {metaResult && (
-                <div>
-                    <h3>Meta etiquetas (puntuación: {metaResult.score}/100)</h3>
-                    <p>Título: {metaResult.data.title || 'No encontrado'} ({metaResult.data.title_length} caracteres)</p>
-                    <p>Meta description: {metaResult.data.meta_description || 'No encontrada'}</p>
-                    <p>Canonical: {metaResult.data.canonical || 'No encontrado'}</p>
+                <Section title="Meta etiquetas" score={metaResult.score}>
+                    <dl className="meta-list">
+                        <dt>Título ({metaResult.data.title_length} caracteres)</dt>
+                        <dd>{metaResult.data.title || 'No encontrado'}</dd>
+                        <dt>Meta description ({metaResult.data.meta_description_length} caracteres)</dt>
+                        <dd>{metaResult.data.meta_description || 'No encontrada'}</dd>
+                        <dt>Canonical</dt>
+                        <dd>{metaResult.data.canonical || 'No encontrado'}</dd>
+                        <dt>Robots</dt>
+                        <dd>{metaResult.data.robots || 'No especificado'}</dd>
+                    </dl>
+                    <IssueList issues={metaResult.data.issues} />
+                </Section>
+            )}
 
-                    {metaResult.data.issues.length > 0 && (
-                        <div>
-                            <h4>Problemas detectados:</h4>
-                            <ul>
-                                {metaResult.data.issues.map((issue) => (
-                                    <li key={issue}>{issue}</li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-                </div>
+            {headingsResult && (
+                <Section title="Encabezados" score={headingsResult.score}>
+                    <HeadingsSection result={headingsResult} />
+                </Section>
+            )}
+
+            {keywordsResult && (
+                <Section title="Palabras clave" score={keywordsResult.score}>
+                    <KeywordsSection result={keywordsResult} />
+                </Section>
+            )}
+
+            {linksResult && (
+                <Section title="Enlaces" score={linksResult.score}>
+                    <LinksSection result={linksResult} brokenLinks={audit.broken_links ?? []} />
+                </Section>
+            )}
+
+            {speedResult && (
+                <Section title="Velocidad (PageSpeed)" score={speedResult.score}>
+                    <SpeedSection result={speedResult} />
+                </Section>
             )}
         </div>
     );
