@@ -1,42 +1,51 @@
-const STEPS = [
-    { type: 'fetch', label: 'Descarga de la página' },
-    { type: 'meta', label: 'Meta etiquetas' },
-    { type: 'headings', label: 'Encabezados' },
-    { type: 'keywords', label: 'Palabras clave' },
-    { type: 'links', label: 'Enlaces' },
-    { type: 'speed', label: 'Velocidad' },
-];
+import { STEP_STATUS, lookup } from '../lib/labels';
+import Icon from './ui/Icon';
 
 /**
- * Checklist visual de qué análisis ya terminaron mientras el batch
- * sigue procesando. Así el usuario ve progreso real, no solo un spinner.
+ * Real progress reported by the API: one step per job (download + one per
+ * report section), with a progress bar and a polite live announcement.
  */
-function AnalysisProgress({ results }) {
-    const doneTypes = new Set((results ?? []).map((r) => r.type));
-    const completed = STEPS.filter((s) => doneTypes.has(s.type)).length;
+function AnalysisProgress({ progress, status }) {
+    const steps = progress?.steps ?? [];
+    const done = progress?.completed_steps ?? 0;
+    const total = progress?.total_steps ?? steps.length;
+    const percentage = progress?.percentage ?? 0;
+    const heading =
+        status === 'pending' ? 'En cola: el análisis empezará en breve' : 'Analizando la página…';
 
     return (
-        <div className="analysis-progress">
-            <div className="analysis-progress-header">
-                <span className="spinner" aria-hidden="true" />
-                <span>
-                    Analizando… {completed}/{STEPS.length} pasos
-                </span>
+        <section className="card progress" aria-labelledby="progress-title">
+            <h2 id="progress-title" className="card__title">
+                <Icon name="spinner" /> {heading}
+            </h2>
+            <div
+                className="progress__bar"
+                role="progressbar"
+                aria-label="Progreso de la auditoría"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={percentage}
+                aria-valuetext={`${done} de ${total} pasos completados`}
+            >
+                <div className="progress__fill" style={{ width: `${percentage}%` }} />
             </div>
-            <ul className="analysis-progress-list">
-                {STEPS.map((step) => {
-                    const done = doneTypes.has(step.type);
+            <p className="progress__summary" aria-live="polite">
+                {done} de {total} pasos completados
+            </p>
+            <ol className="progress__steps">
+                {steps.map((step) => {
+                    const info = lookup(STEP_STATUS, step.status);
+
                     return (
-                        <li key={step.type} className={done ? 'done' : 'pending'}>
-                            <span className="step-icon" aria-hidden="true">
-                                {done ? '✓' : '·'}
-                            </span>
-                            {step.label}
+                        <li key={step.key} className={`progress__step tone--${info.tone}`}>
+                            <Icon name={info.icon} />
+                            <span className="progress__step-label">{step.label}</span>
+                            <span className="progress__step-status">{info.label}</span>
                         </li>
                     );
                 })}
-            </ul>
-        </div>
+            </ol>
+        </section>
     );
 }
 

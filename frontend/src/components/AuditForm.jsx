@@ -1,43 +1,81 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { createAudit } from '../api/audits';
+import { describeApiError } from '../api/errors';
+import { prepareUrl } from '../lib/url';
 
-function AuditForm({ onAuditCreated }) {
-    const [url, setUrl] = useState('');
-    const [loading, setLoading] = useState(false);
+/**
+ * URL form. Validates obvious mistakes locally and shows the API's own
+ * validation message (e.g. private addresses) next to the field.
+ */
+function AuditForm({ onCreated }) {
+    const [value, setValue] = useState('');
     const [error, setError] = useState(null);
+    const [submitting, setSubmitting] = useState(false);
+    const inputId = useId();
+    const hintId = useId();
+    const errorId = useId();
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
+    async function handleSubmit(event) {
+        event.preventDefault();
+
+        const { url, error: validationError } = prepareUrl(value);
+
+        if (validationError) {
+            setError(validationError);
+            return;
+        }
+
         setError(null);
-        setLoading(true);
+        setSubmitting(true);
 
         try {
             const audit = await createAudit(url);
-            onAuditCreated(audit);
-            setUrl('');
-        } catch {
-            setError('No se pudo crear la auditoría. Revisa que la URL sea válida.');
-        } finally {
-            setLoading(false);
+            onCreated(audit);
+        } catch (requestError) {
+            const info = describeApiError(requestError);
+            setError(info.fieldErrors.url ?? info.message);
+            setSubmitting(false);
         }
-    };
+    }
 
     return (
-        <form onSubmit={handleSubmit} className="audit-form">
-            <div className="audit-form-row">
+        <form className="audit-form" onSubmit={handleSubmit} noValidate aria-busy={submitting}>
+            <label className="audit-form__label" htmlFor={inputId}>
+                URL de la página
+            </label>
+            <p id={hintId} className="audit-form__hint">
+                Por ejemplo, <span className="mono">https://ejemplo.com/blog</span>. Si no indicas
+                el protocolo se usará https://.
+            </p>
+            <div className="audit-form__row">
                 <input
-                    type="url"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
+                    id={inputId}
+                    name="url"
+                    type="text"
+                    inputMode="url"
+                    autoComplete="url"
+                    spellCheck="false"
+                    autoCapitalize="none"
+                    className="input"
                     placeholder="https://ejemplo.com"
-                    required
-                    className="audit-form-input"
+                    value={value}
+                    onChange={(event) => {
+                        setValue(event.target.value);
+                        if (error) setError(null);
+                    }}
+                    aria-invalid={error ? 'true' : 'false'}
+                    aria-describedby={error ? `${hintId} ${errorId}` : hintId}
+                    disabled={submitting}
                 />
-                <button type="submit" disabled={loading} className="audit-form-button">
-                    {loading ? 'Analizando...' : 'Analizar'}
+                <button type="submit" className="button button--primary" disabled={submitting}>
+                    {submitting ? 'Creando auditoría…' : 'Analizar'}
                 </button>
             </div>
-            {error && <p className="form-error">{error}</p>}
+            {error && (
+                <p id={errorId} className="field-error" role="alert">
+                    {error}
+                </p>
+            )}
         </form>
     );
 }

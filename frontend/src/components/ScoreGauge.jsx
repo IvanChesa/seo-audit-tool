@@ -1,54 +1,42 @@
-// Círculo de progreso SVG para el score global (0-100).
-// Verde >= 80, naranja 50-79, rojo < 50.
-function scoreColor(score) {
-    if (score >= 80) return 'var(--good)';
-    if (score >= 50) return 'var(--warn)';
-    return 'var(--bad)';
-}
+import { RATING, lookup } from '../lib/labels';
 
-function ScoreGauge({ score }) {
-    const radius = 70;
-    const stroke = 12;
-    const circumference = 2 * Math.PI * radius;
-    const value = score ?? 0;
-    // Parte del círculo que se pinta según el score.
-    const offset = circumference * (1 - value / 100);
-    const color = scoreColor(value);
+const RADIUS = 52;
+const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+
+/**
+ * Circular gauge for a 0–100 score. The number and the rating text are
+ * rendered as real text, so the gauge is readable without colour.
+ */
+function ScoreGauge({ score, rating, label = 'Puntuación SEO global' }) {
+    const value = Math.max(0, Math.min(100, score ?? 0));
+    const ratingInfo = rating ? lookup(RATING, rating) : null;
+    const offset = CIRCUMFERENCE * (1 - value / 100);
 
     return (
-        <div className="score-gauge" role="img" aria-label={`Puntuación global: ${value} de 100`}>
-            <svg width="170" height="170" viewBox="0 0 170 170">
-                <circle
-                    cx="85" cy="85" r={radius}
-                    fill="none"
-                    stroke="var(--surface-2)"
-                    strokeWidth={stroke}
-                />
-                <circle
-                    cx="85" cy="85" r={radius}
-                    fill="none"
-                    stroke={color}
-                    strokeWidth={stroke}
-                    strokeLinecap="round"
-                    strokeDasharray={circumference}
-                    strokeDashoffset={offset}
-                    transform="rotate(-90 85 85)"
-                    style={{ transition: 'stroke-dashoffset 0.8s ease' }}
-                />
-                <text
-                    x="85" y="80"
-                    textAnchor="middle"
-                    className="score-gauge-value"
-                    fill={color}
-                >
-                    {value}
-                </text>
-                <text x="85" y="104" textAnchor="middle" className="score-gauge-label">
-                    / 100
-                </text>
-            </svg>
-            <p className="score-gauge-title">Puntuación SEO global</p>
-        </div>
+        <figure className={`gauge gauge--${ratingInfo?.tone ?? 'neutral'}`}>
+            <div className="gauge__visual">
+                <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+                    <circle className="gauge__track" cx="60" cy="60" r={RADIUS} />
+                    <circle
+                        className="gauge__value"
+                        cx="60"
+                        cy="60"
+                        r={RADIUS}
+                        strokeDasharray={CIRCUMFERENCE}
+                        strokeDashoffset={offset}
+                        transform="rotate(-90 60 60)"
+                    />
+                </svg>
+                <p className="gauge__number">
+                    <span className="gauge__score">{score ?? '—'}</span>
+                    <span className="gauge__max">/100</span>
+                </p>
+            </div>
+            <figcaption className="gauge__caption">
+                <span className="gauge__label">{label}</span>
+                {ratingInfo && <span className="gauge__rating">{ratingInfo.label}</span>}
+            </figcaption>
+        </figure>
     );
 }
 

@@ -1,25 +1,42 @@
 import apiClient from './client';
 
 /**
- * Create a new audit for the given URL.
+ * Creates an audit for the given URL. The API validates and normalises it
+ * and answers with the pending audit.
  */
-export const createAudit = async (url) => {
+export async function createAudit(url) {
     const response = await apiClient.post('/audits', { url });
-    return response.data;
-};
+    return response.data.data;
+}
 
 /**
- * Get a single audit by ID, including its results.
+ * Full audit with progress, sections and issues.
  */
-export const getAudit = async (id) => {
-    const response = await apiClient.get(`/audits/${id}`);
-    return response.data;
-};
+export async function getAudit(id, { signal } = {}) {
+    const response = await apiClient.get(`/audits/${encodeURIComponent(id)}`, { signal });
+    return response.data.data;
+}
 
 /**
- * List all audits (paginated).
+ * Paginated history. Empty filters are not sent.
  */
-export const listAudits = async () => {
-    const response = await apiClient.get('/audits');
-    return response.data;
-};
+export async function listAudits(
+    { page = 1, perPage = 10, status = '', search = '' } = {},
+    { signal } = {},
+) {
+    const params = { page, per_page: perPage };
+
+    if (status) params.status = status;
+    if (search.trim()) params.search = search.trim();
+
+    const response = await apiClient.get('/audits', { params, signal });
+
+    return {
+        items: response.data.data,
+        meta: response.data.meta,
+    };
+}
+
+export async function deleteAudit(id) {
+    await apiClient.delete(`/audits/${encodeURIComponent(id)}`);
+}

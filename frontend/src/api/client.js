@@ -1,10 +1,13 @@
-import axios from 'axios';
+import { create } from 'axios';
 
-const apiClient = axios.create({
-    baseURL: 'http://localhost/api',
+/** Base URL of the Laravel API, configurable per environment (see .env.example). */
+export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost/api').replace(/\/+$/, '');
+
+const apiClient = create({
+    baseURL: API_URL,
+    timeout: 15000,
     headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        Accept: 'application/json',
     },
 });
 
