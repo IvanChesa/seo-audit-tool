@@ -5,10 +5,13 @@ import react from '@vitejs/plugin-react';
 // https://laravel.com/docs/vite
 export default defineConfig({
     plugins: [
-        laravel({
-            input: ['resources/css/app.css', 'resources/js/main.jsx'],
-            refresh: true,
-        }),
+        // Tests don't need the Laravel integration, and the plugin refuses to
+        // start a dev server (which Vitest uses) when CI is set.
+        !process.env.VITEST &&
+            laravel({
+                input: ['resources/css/app.css', 'resources/js/main.jsx'],
+                refresh: true,
+            }),
         react(),
     ],
     test: {
