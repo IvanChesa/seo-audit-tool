@@ -2,50 +2,64 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Analysis\SnapshotStore;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ListAuditsRequest;
+use App\Http\Requests\StoreAuditRequest;
+use App\Http\Resources\AuditResource;
+use App\Http\Resources\AuditSummaryResource;
 use App\Jobs\FetchPageJob;
 use App\Models\Audit;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 
 class AuditController extends Controller
 {
     /**
-     * List all audits.
+     * Paginated history, newest first. Filters: ?status=, ?search= (URL contains).
      */
-    public function index(): JsonResponse
+    public function index(ListAuditsRequest $request): AnonymousResourceCollection
     {
-        $audits = Audit::latest()->paginate(15);
+        $audits = Audit::query()
+            ->filter($request->status(), $request->search())
+            ->orderByDesc('id')
+            ->paginate($request->perPage())
+            ->withQueryString();
 
-        return response()->json($audits);
+        return AuditSummaryResource::collection($audits);
     }
 
     /**
-     * Create a new audit and dispatch it for processing.
+     * Creates the audit and queues it. The client follows its progress by
+     * polling the URL in the Location header.
      */
-    public function store(Request $request): JsonResponse
+    public function store(StoreAuditRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'url' => ['required', 'url', 'max:2048'],
-        ]);
+        $audit = Audit::createFor($request->safeUrl());
 
-        $audit = Audit::create([
-            'url' => $validated['url'],
-            'status' => 'pending',
-        ]);
+        FetchPageJob::dispatch($audit->id);
 
-        FetchPageJob::dispatch($audit);
+        return AuditResource::make($audit->fresh() ?? $audit)
+            ->response()
+            ->setStatusCode(201)
+            ->header('Location', route('audits.show', $audit));
+    }
 
-        return response()->json($audit, 201);
+    public function show(Audit $audit): AuditResource
+    {
+        return AuditResource::make($audit->load(['results', 'brokenLinks']));
     }
 
     /**
-     * Show a single audit with its results.
+     * Deletes the audit, its results and broken links (ON DELETE CASCADE).
+     * Jobs still running for it will find no audit and stop.
      */
-    public function show(Audit $audit): JsonResponse
+    public function destroy(Audit $audit, SnapshotStore $snapshots): Response
     {
-        $audit->load(['results', 'brokenLinks']);
+        $audit->delete();
+        $snapshots->forget($audit->id);
 
-        return response()->json($audit);
+        return response()->noContent();
     }
 }
