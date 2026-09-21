@@ -2,153 +2,129 @@
 
 namespace App\Jobs;
 
+use App\Analysis\AuditFinalizer;
+use App\Analysis\PageFetcher;
+use App\Analysis\PageFetchException;
+use App\Analysis\SnapshotStore;
+use App\Enums\AuditStatus;
+use App\Enums\Section;
 use App\Models\Audit;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Bus\Batch;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\SerializesModels;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Bus;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
+/**
+ * First step of an audit: download the page (through the SSRF-safe client),
+ * keep it in the cache and fan out one analyzer job per report section.
+ *
+ * Retries: transient network errors (timeouts, connection resets, 5xx) are
+ * retried with a delay; permanent ones (404, not HTML, unsafe redirect...)
+ * fail the audit immediately with a user-facing reason.
+ */
 class FetchPageJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Queueable;
 
-    /**
-     * The number of times the job may be attempted.
-     */
-    public int $tries = 2;
+    public int $tries = 3;
 
-    /**
-     * The number of seconds to wait before retrying.
-     */
-    public int $backoff = 5;
+    /** @var list<int> Seconds to wait before the 2nd and 3rd attempts. */
+    public array $backoff = [10, 30];
 
-    public function __construct(
-        public Audit $audit
-    ) {}
+    /** Page download (with redirects) is bounded well below this. */
+    public int $timeout = 120;
 
-    /**
-     * Execute the job.
-     */
-    public function handle(): void
+    public bool $failOnTimeout = true;
+
+    public function __construct(public readonly int $auditId) {}
+
+    public function handle(PageFetcher $fetcher, SnapshotStore $snapshots): void
     {
-        $this->audit->update(['status' => 'processing']);
+        $audit = Audit::query()->find($this->auditId);
+
+        // Deleted meanwhile, or already finished by a previous attempt.
+        if ($audit === null || $audit->status->isFinished()) {
+            return;
+        }
+
+        if ($audit->status === AuditStatus::Pending) {
+            $audit->markProcessing();
+        }
 
         try {
-            $response = Http::timeout(15)
-                ->withUserAgent('SEO-Audit-Tool/1.0')
-                ->get($this->audit->url);
+            $snapshot = $fetcher->fetch($audit->url);
+        } catch (PageFetchException $e) {
+            $this->handleFetchFailure($audit, $e);
 
-            $html = $response->body();
-            $statusCode = $response->status();
+            return;
+        }
 
-            // Guardamos el HTML temporalmente en caché para que
-            // los siguientes Jobs (meta tags, encabezados, etc.) lo usen
-            // sin tener que descargar la página otra vez.
-            Cache::put("audit:{$this->audit->id}:html", $html, now()->addMinutes(30));
+        $audit->forceFill([
+            'final_url' => $snapshot->finalUrl,
+            'http_status' => $snapshot->statusCode,
+        ])->save();
 
-            $this->audit->results()->create([
-                'type' => 'fetch',
-                'data' => [
-                    'status_code' => $statusCode,
-                    'content_length' => strlen($html),
-                    'success' => $response->successful(),
-                ],
-            ]);
+        $snapshots->put($audit->id, $snapshot);
 
-            if (! $response->successful()) {
-                $this->audit->update(['status' => 'failed']);
-                return;
-            }
+        $this->dispatchAnalyzers($audit->id);
+    }
 
-            $this->dispatchAnalysisBatch();
+    /**
+     * Called by the queue after the last attempt threw or timed out. The audit
+     * must never stay "processing" forever.
+     */
+    public function failed(?Throwable $exception): void
+    {
+        Log::error('Audit page fetch crashed', [
+            'audit_id' => $this->auditId,
+            'exception' => $exception !== null ? $exception::class : null,
+            'message' => $exception?->getMessage(),
+        ]);
 
-        } catch (\Illuminate\Http\Client\ConnectionException $e) {
-            $this->audit->results()->create([
-                'type' => 'fetch',
-                'data' => [
-                    'error' => 'connection_failed',
-                    'message' => $e->getMessage(),
-                ],
-            ]);
+        $audit = Audit::query()->find($this->auditId);
 
-            $this->audit->update(['status' => 'failed']);
+        if ($audit !== null && ! $audit->status->isFinished()) {
+            $audit->markFailed('unexpected_error', 'Se produjo un error inesperado al descargar la página. Inténtalo de nuevo más tarde.');
         }
     }
 
-    /**
-     * Despacha los 4 jobs de análisis en paralelo dentro de un batch.
-     * Cuando todos terminan, then() calcula el score global; si alguno
-     * falla, catch() marca la auditoría como fallida.
-     *
-     * Importante: los callbacks se serializan y se ejecutan más tarde en
-     * el worker, por eso capturamos el ID y no el modelo completo.
-     */
-    private function dispatchAnalysisBatch(): void
+    private function handleFetchFailure(Audit $audit, PageFetchException $e): void
     {
-        $auditId = $this->audit->id;
-
-        Bus::batch([
-            new AnalyzeMetaTagsJob($this->audit),
-            new AnalyzeHeadingsJob($this->audit),
-            new AnalyzeKeywordDensityJob($this->audit),
-            new CheckBrokenLinksJob($this->audit),
-            new PageSpeedJob($this->audit),
-        ])
-            ->name("audit:{$auditId}")
-            ->then(function (Batch $batch) use ($auditId) {
-                $audit = Audit::find($auditId);
-
-                if (! $audit) {
-                    return;
-                }
-
-                $audit->update([
-                    'score' => self::calculateGlobalScore($audit),
-                    'status' => 'completed',
-                ]);
-            })
-            ->catch(function (Batch $batch, Throwable $e) use ($auditId) {
-                Audit::where('id', $auditId)->update(['status' => 'failed']);
-            })
-            ->dispatch();
-    }
-
-    /**
-     * Media ponderada de los scores por tipo de análisis. Si un tipo no
-     * tiene score (ej. speed sin API key), se reparte su peso entre los
-     * demás en lugar de contarlo como 0.
-     */
-    public static function calculateGlobalScore(Audit $audit): int
-    {
-        $weights = [
-            'meta' => 0.25,
-            'headings' => 0.20,
-            'keywords' => 0.15,
-            'links' => 0.25,
-            'speed' => 0.15,
+        $context = [
+            'audit_id' => $audit->id,
+            'reason' => $e->errorCode,
+            'attempt' => $this->attempts(),
+            'detail' => $e->getPrevious()?->getMessage(),
         ];
 
-        $scores = $audit->results()
-            ->whereIn('type', array_keys($weights))
-            ->whereNotNull('score')
-            ->pluck('score', 'type');
+        if ($e->retryable && $this->attempts() < $this->tries) {
+            Log::info('Transient page fetch failure, retrying', $context);
+            $this->release($this->backoff[$this->attempts() - 1] ?? 30);
 
-        $weightedSum = 0;
-        $totalWeight = 0;
-
-        foreach ($weights as $type => $weight) {
-            if (isset($scores[$type])) {
-                $weightedSum += $scores[$type] * $weight;
-                $totalWeight += $weight;
-            }
+            return;
         }
 
-        return $totalWeight > 0 ? (int) round($weightedSum / $totalWeight) : 0;
+        Log::notice('Audit page could not be fetched', $context);
+        $audit->markFailed($e->errorCode, $e->getMessage());
+    }
+
+    private function dispatchAnalyzers(int $auditId): void
+    {
+        $jobs = array_map(
+            fn (Section $section) => new RunAnalyzerJob($auditId, $section),
+            Section::cases(),
+        );
+
+        // allowFailures(): one failing section must not cancel the others;
+        // the finalizer marks it as failed and excludes it from the score.
+        Bus::batch($jobs)
+            ->name("audit:{$auditId}")
+            ->allowFailures()
+            ->finally(static function (Batch $batch) use ($auditId): void {
+                app(AuditFinalizer::class)->finalize($auditId);
+            })
+            ->dispatch();
     }
 }
