@@ -13,5 +13,8 @@ export default defineConfig({
         setupFiles: ['./src/test/setup.js'],
         restoreMocks: true,
         css: false,
+        // jsdom start-up on a cold cache (first run after npm ci) can take
+        // several seconds under load; this only gives slow machines headroom.
+        testTimeout: 15000,
     },
 });

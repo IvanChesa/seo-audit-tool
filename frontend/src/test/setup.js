@@ -1,6 +1,13 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
-import { afterEach } from 'vitest';
+import { afterEach, vi } from 'vitest';
+
+// The keyword chart is decorative (aria-hidden; the table next to it holds the
+// data). Loading Recharts on first use is slow enough to make unrelated tests
+// time out on a cold cache, so tests render a lightweight stand-in.
+vi.mock('../components/report/details/KeywordChart', () => ({
+    default: () => null,
+}));
 
 afterEach(() => {
     cleanup();
