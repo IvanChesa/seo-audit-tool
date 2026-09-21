@@ -47,6 +47,15 @@ describe('useAudit', () => {
         expect(getAudit).toHaveBeenCalledTimes(1);
     });
 
+    it('does not poll legacy audits, whose jobs no longer exist', async () => {
+        vi.mocked(getAudit).mockResolvedValue(processingAudit({ legacy: true }));
+
+        renderHook(() => useAudit('7', { interval: 1000 }));
+        await act(() => vi.advanceTimersByTimeAsync(5000));
+
+        expect(getAudit).toHaveBeenCalledTimes(1);
+    });
+
     it('stops polling and aborts the request when unmounted', async () => {
         vi.mocked(getAudit).mockResolvedValue(processingAudit());
 

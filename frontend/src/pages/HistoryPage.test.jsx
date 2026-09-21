@@ -103,6 +103,19 @@ describe('HistoryPage', () => {
         ).toBeInTheDocument();
     });
 
+    it('offers a way back when the requested page does not exist', async () => {
+        const user = userEvent.setup();
+        vi.mocked(listAudits).mockResolvedValue(
+            page([], { currentPage: 9, lastPage: 2, total: 12 }),
+        );
+
+        renderHistory('/history?page=9');
+
+        expect(await screen.findByText('Esta página del historial no existe.')).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Ir a la primera página' }));
+        expect(screen.getByTestId('location')).toHaveTextContent(/^\/history$/);
+    });
+
     it('deletes an audit only after confirmation and refreshes the list', async () => {
         const user = userEvent.setup();
         vi.mocked(listAudits)

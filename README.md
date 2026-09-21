@@ -17,7 +17,7 @@ concreta para cada uno.
 **Qué demuestra este proyecto:** una API REST en Laravel con colas y *batches* de jobs idempotentes,
 una defensa completa frente a SSRF (el servidor descarga URLs escritas por usuarios), análisis de HTML
 probado con más de 300 tests, análisis estático a nivel 8 y una SPA en React accesible y responsive con
-polling robusto y 76 tests.
+polling robusto y 78 tests.
 
 ## Índice
 
@@ -255,7 +255,7 @@ En el frontend, `VITE_API_URL` (por defecto `http://localhost/api`).
 
 | | Backend (desde `backend/`) | Frontend (desde `frontend/`) |
 | --- | --- | --- |
-| Tests | `./vendor/bin/sail artisan test` — 301 tests | `npm test` — 76 tests |
+| Tests | `./vendor/bin/sail artisan test` — 301 tests | `npm test` — 78 tests |
 | Estilo / formato | `./vendor/bin/sail composer lint` (Pint) | `npm run format:check` (Prettier) |
 | Lint / análisis estático | `./vendor/bin/sail composer analyse` (Larastan nivel 8) | `npm run lint` (oxlint, falla con avisos) |
 | Build | — | `npm run build` |

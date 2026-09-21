@@ -36,7 +36,7 @@ Versión orientada a producción: seguridad, robustez, pruebas y documentación.
 - Polling sin solapamientos con reintentos y cancelación.
 - Historial paginado con búsqueda y filtro en la URL; repetir y eliminar con confirmación.
 - Accesibilidad (teclado, foco, landmarks, estados con icono y texto) y diseño responsive claro/oscuro.
-- 76 tests (Vitest + Testing Library), oxlint con reglas de accesibilidad y Prettier.
+- 78 tests (Vitest + Testing Library), oxlint con reglas de accesibilidad y Prettier.
 
 ### Proyecto
 

@@ -10,7 +10,7 @@ const MAX_CONSECUTIVE_FAILURES = 3;
  * Loads an audit and keeps polling it while it is pending or processing.
  *
  * - Requests never overlap: the next one is scheduled when the previous ends.
- * - Polling stops when the audit finishes, on a 404, after repeated network
+ * - Polling stops when the audit finishes (or is a legacy one), on a 404, after repeated network
  *   errors (with exponential backoff between them) and on unmount.
  * - `replace` updates the audit locally (e.g. after an action) without a request.
  */
@@ -36,7 +36,8 @@ export function useAudit(id, { interval = POLL_INTERVAL_MS } = {}) {
                 failures = 0;
                 setState({ status: 'success', audit, error: null });
 
-                if (!isFinished(audit.status)) schedule(interval);
+                // Legacy audits come from the previous version: their jobs no longer exist.
+                if (!isFinished(audit.status) && !audit.legacy) schedule(interval);
             } catch (error) {
                 const info = describeApiError(error);
                 if (stopped || info.kind === 'cancelled') return;

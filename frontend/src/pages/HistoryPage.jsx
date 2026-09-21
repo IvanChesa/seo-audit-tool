@@ -216,7 +216,18 @@ function HistoryPage() {
 
             {result.status === 'success' && items.length === 0 && (
                 <div className="empty-state">
-                    {hasFilters ? (
+                    {meta?.total > 0 ? (
+                        <>
+                            <p>Esta página del historial no existe.</p>
+                            <button
+                                type="button"
+                                className="button button--secondary"
+                                onClick={() => updateParams({ page: 1 })}
+                            >
+                                Ir a la primera página
+                            </button>
+                        </>
+                    ) : hasFilters ? (
                         <>
                             <p>No hay auditorías que coincidan con los filtros.</p>
                             <button
