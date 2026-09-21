@@ -99,8 +99,8 @@ es un factor de posicionamiento por sí misma.
    buscadores (`noindex` o bloqueo en `robots.txt`). Si hay alguno, la puntuación global no supera **49**.
 4. **Valoración** con los mismos rangos que Lighthouse: 90–100 *Bueno*, 50–89 *Mejorable*, 0–49 *Deficiente*.
 
-La lógica está en [`ScoreCalculator`](backend/app/Analysis/ScoreCalculator.php) y los pesos en el enum
-[`Section`](backend/app/Enums/Section.php), ambos con tests unitarios.
+La lógica está en [`ScoreCalculator`](app/Analysis/ScoreCalculator.php) y los pesos en el enum
+[`Section`](app/Enums/Section.php), ambos con tests unitarios.
 
 ## Arquitectura
 
@@ -110,7 +110,7 @@ React → API Laravel → cola → analizadores → base de datos
 
 ```mermaid
 flowchart LR
-    SPA["React SPA<br/>(Vite, React Router, Axios)"] -- "POST /api/audits<br/>GET /api/audits/{id} (polling)" --> API["API Laravel<br/>Form Requests · Resources<br/>rate limiting · CORS"]
+    SPA["React SPA<br/>(Vite, React Router, Axios)"] -- "POST /api/audits<br/>GET /api/audits/{id} (polling)" --> API["API Laravel<br/>Form Requests · Resources<br/>rate limiting"]
     API -- "valida la URL (UrlGuard)<br/>y encola" --> Q[("Cola Redis")]
     Q --> F["FetchPageJob<br/>descarga segura<br/>(SafeHttpClient)"]
     F -- "HTML acotado, con TTL" --> C[("Caché Redis")]
@@ -122,6 +122,10 @@ flowchart LR
     FIN --> DB
     DB --> API
 ```
+
+Todo es **una sola aplicación Laravel**. Cualquier ruta fuera de `/api` y `/up` devuelve la vista
+[`app.blade.php`](resources/views/app.blade.php), que carga la SPA con Vite; React Router decide qué
+página mostrar y la SPA llama a `/api` en el mismo origen, así que no necesita CORS.
 
 **Ciclo de vida de una auditoría**: `pending → processing → completed | failed`. Las transiciones se
 aplican con un *compare-and-set* en una sola sentencia `UPDATE`, así que dos workers no pueden cerrar (ni
@@ -144,21 +148,26 @@ reabrir) la misma auditoría.
 
 ```text
 seo-audit-tool/
-├── backend/                     API Laravel
-│   ├── app/Security/            UrlNormalizer, UrlGuard, IpAddressPolicy, SafeHttpClient (anti-SSRF)
-│   ├── app/Analysis/            Analizadores, puntuación, descarga, informe y finalizador
-│   ├── app/Jobs/                FetchPageJob y RunAnalyzerJob
-│   ├── app/Http/                Controlador, Form Requests, Resources y middleware
-│   ├── app/Console/Commands/    audits:prune
-│   ├── config/seo-audit.php     Límites y parámetros de la auditoría
-│   └── tests/                   Unit y Feature (PHPUnit)
-├── frontend/                    SPA React
-│   └── src/
+├── app/
+│   ├── Security/                UrlNormalizer, UrlGuard, IpAddressPolicy, SafeHttpClient (anti-SSRF)
+│   ├── Analysis/                Analizadores, puntuación, descarga, informe y finalizador
+│   ├── Jobs/                    FetchPageJob y RunAnalyzerJob
+│   ├── Http/                    Controlador, Form Requests, Resources y middleware
+│   └── Console/Commands/        audits:prune
+├── config/seo-audit.php         Límites y parámetros de la auditoría
+├── routes/                      api.php (API), web.php (devuelve la SPA) y console.php
+├── resources/
+│   ├── views/app.blade.php      Página HTML que carga la SPA
+│   ├── css/app.css              Estilos
+│   └── js/                      SPA React (cada test junto a su archivo)
 │       ├── api/                 Cliente Axios, servicios y mapeo de errores
 │       ├── hooks/               useAudit (polling), useDocumentTitle
 │       ├── pages/               Inicio, auditoría, historial y 404
 │       ├── components/          Informe, formulario, progreso y componentes de UI
 │       └── lib/                 Validación de URL, formato, etiquetas y textos de ayuda
+├── tests/                       Unit y Feature (PHPUnit)
+├── compose.yaml                 Entorno Docker (Laravel Sail)
+├── vite.config.js               Vite, plugin de Laravel y Vitest
 ├── docs/screenshots/            Capturas del README
 └── .github/workflows/ci.yml     Integración continua
 ```
@@ -169,7 +178,7 @@ seo-audit-tool/
 | --- | --- |
 | Backend | PHP 8.4+, Laravel 13, colas y *job batching*, Eloquent, Symfony DomCrawler, cliente HTTP de Laravel (Guzzle + cURL) |
 | Datos | MySQL 8.4 (SQLite en memoria para los tests), Redis para cola y caché |
-| Frontend | React 19, Vite 8, React Router 7, Axios y Recharts (cargado bajo demanda) |
+| Frontend | React 19, Vite 8 con `laravel-vite-plugin`, React Router 7, Axios y Recharts (cargado bajo demanda) |
 | Calidad | PHPUnit, Larastan (PHPStan nivel 8), Laravel Pint, Vitest, Testing Library, oxlint (con jsx-a11y) y Prettier |
 | Entorno | Docker con Laravel Sail y GitHub Actions |
 
@@ -177,15 +186,18 @@ seo-audit-tool/
 
 ### Requisitos
 
-- **Docker** (Docker Desktop en Windows/macOS). En Windows, ejecuta los comandos desde **WSL 2**.
-- **Node.js 20.19 o superior** y npm para el frontend.
+- **Docker** (Docker Desktop en Windows/macOS). En Windows, ejecuta los comandos de Sail desde **WSL 2**;
+  npm funciona tanto en WSL como en PowerShell (usa el mismo para `npm ci` y `npm run dev`).
+- **Node.js 20.19 o superior** y npm para compilar el frontend.
 - No hace falta tener PHP ni Composer instalados: se usan desde contenedores.
 
-### 1. Backend (API, worker, scheduler, MySQL y Redis)
+Todos los comandos se ejecutan desde la raíz del proyecto.
+
+### 1. Instalación (solo la primera vez)
 
 ```bash
 git clone https://github.com/IvanChesa/seo-audit-tool.git
-cd seo-audit-tool/backend
+cd seo-audit-tool
 cp .env.example .env
 
 # Dependencias PHP con un contenedor temporal (no requiere PHP local)
@@ -195,25 +207,29 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/var/www/html" -w /var/www/htm
 ./vendor/bin/sail up -d                 # la primera vez construye la imagen (unos minutos)
 ./vendor/bin/sail artisan key:generate
 ./vendor/bin/sail artisan migrate
+npm ci
 ```
-
-`sail up -d` arranca cinco contenedores: `laravel.test` (API), `queue` (worker que procesa las
-auditorías), `scheduler` (tareas programadas), `mysql` y `redis`. La API queda en <http://localhost>
-y su estado se puede comprobar en <http://localhost/up>.
 
 > Si ya tienes PHP 8.4 y Composer en local, puedes sustituir el `docker run …` por `composer install`.
-> Si el puerto 80 está ocupado, define `APP_PORT=8080` en `.env` (y ajusta `VITE_API_URL` en el frontend).
 
-### 2. Frontend
+### 2. Arrancar
 
 ```bash
-cd ../frontend
-cp .env.example .env      # opcional: solo si la API no está en http://localhost/api
-npm ci
-npm run dev
+./vendor/bin/sail up -d     # aplicación, worker, scheduler, MySQL y Redis
+npm run dev                 # Vite con recarga en caliente
 ```
 
-La aplicación queda en <http://localhost:5173>.
+La aplicación queda en <http://localhost>, con la API bajo `/api` y el estado de salud en
+<http://localhost/up>.
+
+`sail up -d` arranca cinco contenedores: `laravel.test` (la aplicación), `queue` (worker que procesa las
+auditorías), `scheduler` (tareas programadas), `mysql` y `redis`. `npm run dev` levanta el servidor de
+Vite; Laravel lo detecta (fichero `public/hot`) y carga el JavaScript desde él. Sin `npm run dev`, Laravel
+sirve la última versión compilada con `npm run build` (en `public/build`).
+
+> Si el puerto 80 está ocupado, define `APP_PORT=8080` en `.env` y abre <http://localhost:8080>.
+> Si la página sale en blanco después de cerrar `npm run dev` a la fuerza, borra `public/hot` (Vite lo
+> elimina al salir con normalidad).
 
 ### Workers y tareas programadas
 
@@ -230,12 +246,12 @@ un supervisor para el worker y un cron que ejecute `php artisan schedule:run` ca
 
 ## Configuración
 
-Todas las variables están documentadas en [`backend/.env.example`](backend/.env.example), que no contiene
-secretos. Las más relevantes:
+Todas las variables están documentadas en [`.env.example`](.env.example), que no contiene secretos. Las
+más relevantes:
 
 | Variable | Por defecto | Descripción |
 | --- | --- | --- |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Orígenes que pueden llamar a la API desde el navegador (separados por comas). |
+| `CORS_ALLOWED_ORIGINS` | *(vacía)* | Otros orígenes que pueden llamar a la API desde el navegador (separados por comas). La interfaz no lo necesita: se sirve desde el mismo origen. |
 | `PAGESPEED_API_KEY` | *(vacía)* | Clave de [PageSpeed Insights](https://developers.google.com/speed/docs/insights/v5/get-started). Sin ella, la sección de rendimiento aparece como «no ejecutada» y no cuenta. |
 | `PAGESPEED_STRATEGY` | `mobile` | `mobile` o `desktop`. |
 | `AUDIT_MAX_PAGE_BYTES` | `2097152` | Tamaño máximo del HTML descargado (2 MB). |
@@ -249,13 +265,13 @@ secretos. Las más relevantes:
 | `AUDIT_RETENTION_DAYS` | `0` | Días que se conserva el historial (`0` = siempre). |
 | `REDIS_QUEUE_RETRY_AFTER` | `300` | Debe ser mayor que el timeout del job más largo (150 s). |
 
-En el frontend, `VITE_API_URL` (por defecto `http://localhost/api`).
-
 ## Tests y calidad
 
-| | Backend (desde `backend/`) | Frontend (desde `frontend/`) |
+Todo se ejecuta desde la raíz del proyecto:
+
+| | Backend | Frontend |
 | --- | --- | --- |
-| Tests | `./vendor/bin/sail artisan test` — 301 tests | `npm test` — 78 tests |
+| Tests | `./vendor/bin/sail artisan test` — 308 tests | `npm test` — 78 tests |
 | Estilo / formato | `./vendor/bin/sail composer lint` (Pint) | `npm run format:check` (Prettier) |
 | Lint / análisis estático | `./vendor/bin/sail composer analyse` (Larastan nivel 8) | `npm run lint` (oxlint, falla con avisos) |
 | Build | — | `npm run build` |
@@ -265,7 +281,8 @@ Los tests del backend usan SQLite en memoria, un DNS falso y `Http::preventStray
 salen a Internet. Cubren, entre otros: normalización de URLs y más de 60 vectores SSRF, redirecciones
 peligrosas, límites de tamaño, cada analizador con HTML real, puntuación, transiciones de estado,
 reintentos e idempotencia de los jobs, la API completa (creación, validación, paginación, filtros,
-eliminación en cascada, rate limiting, CORS) y un test de extremo a extremo de la cola.
+eliminación en cascada, rate limiting, CORS), la ruta que sirve la SPA con sus cabeceras y un test de
+extremo a extremo de la cola.
 
 La **integración continua** ([`ci.yml`](.github/workflows/ci.yml)) ejecuta todo lo anterior en cada push
 y pull request: backend con PHP 8.4 y 8.5 sobre SQLite y también contra MySQL 8.4, y frontend con lint,
@@ -346,7 +363,7 @@ limitadas (`429`) incluyen `Retry-After`.
 El servidor descarga URLs que escribe cualquiera y enlaces encontrados en páginas de terceros, así que la
 defensa frente a **SSRF** es la pieza central. Todas las peticiones salientes (la página, cada redirección,
 `robots.txt`, sitemaps y cada enlace comprobado) pasan por
-[`UrlGuard`](backend/app/Security/UrlGuard.php) y [`SafeHttpClient`](backend/app/Security/Http/SafeHttpClient.php):
+[`UrlGuard`](app/Security/UrlGuard.php) y [`SafeHttpClient`](app/Security/Http/SafeHttpClient.php):
 
 - **Solo `http` y `https`**; se rechazan credenciales en la URL (`usuario:clave@`), espacios, caracteres
   de control y barras invertidas (trucos para confundir a los parsers).
@@ -372,20 +389,26 @@ defensa frente a **SSRF** es la pieza central. Todas las peticiones salientes (l
 Otras medidas:
 
 - **Rate limiting** por IP: 10 creaciones/minuto y 200/día; 120 lecturas/minuto.
-- **CORS** restringido a `CORS_ALLOWED_ORIGINS`, sin credenciales.
+- **CORS cerrado por defecto**: la interfaz se sirve desde el mismo origen y solo los orígenes de
+  `CORS_ALLOWED_ORIGINS` pueden llamar a la API desde otro sitio, sin credenciales.
 - **Errores sin información sensible**: mensajes genéricos para 404/405/500 (sin nombres de modelos ni
   trazas con `APP_DEBUG=false`); los detalles técnicos solo van al log.
 - **Cabeceras de seguridad** en todas las respuestas (`nosniff`, `X-Frame-Options: DENY`,
-  `Referrer-Policy: no-referrer`, CSP `default-src 'none'`).
+  `Referrer-Policy: no-referrer`). La API usa la CSP `default-src 'none'`; la página de la SPA, una CSP
+  que solo permite recursos del propio origen (sin scripts ni estilos en línea). Esa página no crea
+  sesiones ni cookies.
 - **Clave de PageSpeed en cabecera** (`X-Goog-Api-Key`), nunca en la URL, para que no acabe en logs.
 - **Entradas validadas y normalizadas** con Form Requests; los filtros de búsqueda escapan los comodines
   de `LIKE`.
-- **Sin secretos en Git**: `.env` ignorado en backend y frontend; `.env.example` sin valores reales.
+- **Sin secretos en Git**: `.env` ignorado; `.env.example` sin valores reales.
 - En el frontend, React escapa todo el contenido remoto y los enlaces externos usan
   `rel="noopener noreferrer nofollow"`.
 
 ## Decisiones técnicas
 
+- **Una sola aplicación Laravel para la API y la SPA**: se arranca con dos comandos, no hace falta CORS
+  y ambas se despliegan juntas. La SPA solo habla con `/api`, así que se podría volver a separar sin
+  tocar su código.
 - **Un job por sección en un batch** en lugar de un único job: los análisis lentos (enlaces, PageSpeed) no
   bloquean a los rápidos, cada uno tiene su timeout y un fallo aislado no invalida la auditoría.
 - **Analizadores como servicios puros** (`AuditContext → SectionResult`) inyectados por el contenedor:

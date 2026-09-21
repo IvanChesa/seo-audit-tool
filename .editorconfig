@@ -14,5 +14,5 @@ trim_trailing_whitespace = false
 [*.{yml,yaml,json}]
 indent_size = 2
 
-[backend/compose.yaml]
+[compose.yaml]
 indent_size = 4

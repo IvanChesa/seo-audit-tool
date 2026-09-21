@@ -1,5 +1,16 @@
 # Changelog
 
+## [Sin publicar]
+
+### Cambiado
+
+- Frontend y backend unidos en una sola aplicación Laravel en la raíz del repositorio: la SPA en React
+  vive en `resources/js`, Laravel la sirve con Vite (`laravel-vite-plugin`) y la SPA llama a la API en el
+  mismo origen. Se arranca con `./vendor/bin/sail up -d` y `npm run dev`.
+- Desaparece `VITE_API_URL` y CORS queda cerrado por defecto (`CORS_ALLOWED_ORIGINS` vacío).
+- La página de la SPA tiene su propia CSP, que solo permite recursos del mismo origen, y no crea sesiones
+  ni cookies; la API mantiene `default-src 'none'`.
+
 ## [1.0.0] — 2026-09-21
 
 Versión orientada a producción: seguridad, robustez, pruebas y documentación.

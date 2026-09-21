@@ -40,10 +40,6 @@ jobs:
           --health-timeout=5s
           --health-retries=20
 
-    defaults:
-      run:
-        working-directory: backend
-
     steps:
       - uses: actions/checkout@v4
 
@@ -60,7 +56,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
-          key: composer-${{ runner.os }}-php${{ matrix.php }}-${{ hashFiles('backend/composer.lock') }}
+          key: composer-${{ runner.os }}-php${{ matrix.php }}-${{ hashFiles('composer.lock') }}
           restore-keys: composer-${{ runner.os }}-php${{ matrix.php }}-
 
       - name: Install dependencies
@@ -94,10 +90,6 @@ jobs:
     name: Frontend
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: frontend
-
     steps:
       - uses: actions/checkout@v4
 
@@ -105,7 +97,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
