@@ -1,0 +1,7 @@
+# Normalise line endings so formatters (Pint, Prettier) behave the same on
+# Windows, macOS, Linux and CI.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary

@@ -1,2 +1,3 @@
+# API-only backend: nothing here is meant to be indexed.
 User-agent: *
-Disallow:
+Disallow: /
